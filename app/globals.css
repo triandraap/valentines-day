@@ -141,14 +141,14 @@ h3,
 @keyframes shootingStar {
   0% {
     opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(65deg) scaleX(0.3);
+    transform: translate3d(0, 0, 0) rotate(40deg) scaleX(0.3);
   }
   10% {
     opacity: 1;
   }
   100% {
     opacity: 0;
-    transform: translate3d(260px, 160px, 0) rotate(65deg) scaleX(1);
+    transform: translate3d(260px, 160px, 0) rotate(40deg) scaleX(1);
   }
 }
 
