@@ -18,13 +18,13 @@ const LOVE_NOTES = [
     title: "First Lean",
     caption: "Foto pertama kita, kamu bahkan ga sadar lagi difoto, dan aku diem-diem nyender di bahu kamu terus aku foto, like it’s the safest place ever. No pose, no setting, just a random moment. Dari situ aku mulai ngerasa, maybe this is not just a moment… mungkin ini awal dari sesuatu yang nggak pernah aku cari, tapi selalu aku butuhkan.",
     image:
-      "/images/1.jpeg",
+      "/images/1.jpg",
   },
   {
     title: "The Smile",
     caption: "Pertama kali kamu kirim selfie ke aku, dan rasanya beda aja. Bukan soal fotonya, tapi karena kamu mau share versi kamu yang sesimple itu ke aku. Senyumnya natural, tapi cukup buat bikin hari aku langsung bagus. Mungkin buat kamu ini cuma foto biasa, tapi buat aku… ini moment kecil yang berarti banget.",
     image:
-      "/images/2.jpeg",
+      "/images/2.jpg",
   },
   {
     title: "Simple Things",
