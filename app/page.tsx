@@ -1,888 +1,578 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { Heart, Music, Volume2, VolumeX } from 'lucide-react';
-import { ImageWithFallback } from './components/figma/ImageWithFallback';
-import { toast, Toaster } from 'sonner';
+import { useEffect, useRef, useState } from "react";
+import type React from "react";
 
-// Generate random stars
-type Star = { id: number; x: number; y: number; size: number; delay: number; duration: number };
-const generateStars = (count: number): Star[] => {
-  return Array.from({ length: count }, (_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    size: Math.random() * 2 + 1,
-    delay: Math.random() * 2,
-    duration: Math.random() * 3 + 2,
-  }));
-};
+const TAPS_REQUIRED = 25;
 
-const questions = [
-  "Do you believe in love at first sight?",
-  "Will you be my Valentine?",
-  "Do you think we're meant to be?",
-  "Can I make you smile today?"
+const QUESTIONS = [
+  "Even it’s hard, do you still want to go through this with me?",
+  "If we could start over, would you still choose me?",
+  "With everything we’re going through, do you still believe in this relationship?",
+  "Are you happy going through this with me?",
+  "On the tough days, would you still choose me?"
 ];
 
-export default function App() {
-  const [stars] = useState(() => generateStars(50));
-  const [floatingHearts, setFloatingHearts] = useState<Array<{ id: number; x: number }>>([]);
-  const [tapCount, setTapCount] = useState(0);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [answeredQuestions, setAnsweredQuestions] = useState<boolean[]>([false, false, false, false]);
-  const [flippedPhotos, setFlippedPhotos] = useState<boolean[]>([false, false, false, false, false]);
-  
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
+const LOVE_NOTES = [
+  {
+    title: "First Lean",
+    caption: "Foto pertama kita, kamu bahkan ga sadar lagi difoto, dan aku diem-diem nyender di bahu kamu terus aku foto, like it’s the safest place ever. No pose, no setting, just a random moment. Dari situ aku mulai ngerasa, maybe this is not just a moment… mungkin ini awal dari sesuatu yang nggak pernah aku cari, tapi selalu aku butuhkan.",
+    image:
+      "/images/1.jpeg",
+  },
+  {
+    title: "The Smile",
+    caption: "Pertama kali kamu kirim selfie ke aku, dan rasanya beda aja. Bukan soal fotonya, tapi karena kamu mau share versi kamu yang sesimple itu ke aku. Senyumnya natural, tapi cukup buat bikin hari aku langsung bagus. Mungkin buat kamu ini cuma foto biasa, tapi buat aku… ini moment kecil yang berarti banget.",
+    image:
+      "/images/2.jpeg",
+  },
+  {
+    title: "Simple Things",
+    caption: "Waktu itu kita lagi capek banget habis kerja, muka juga udah kelihatan capek. Kamu mau beli Recheese buat papahmu, dan aku cuma nganterin kamu ke tempat yang kamu mau. Ga ada yang spesial sebenarnya, cuma momen kecil di hari yang panjang. Tapi justru dari hal sesederhana itu aku ngerasa senang banget bisa ada di situ, nemenin kamu.",
+    image:
+      "/images/3.jpg",
+  },
+  {
+    title: "Goofy, Always",
+    caption: "Kadang kamu suka ngelakuin hal-hal konyol yang ga kamu sadari lucunya. Waktu itu kamu pakai sweater gombrongku karena kedinginan, lengannya kepanjangan, gayanya juga ga jelas, tapi kamu pede aja berdiri disitu. Aku sengaja videoin dan foto karena kamu gemas banget.",
+    image:
+      "/images/4.jpg",
+  },
+  {
+    title: "First Bite, First Us",
+    caption: "Pertama kali kita makan berdua, karena kamu lagi pengen banget makan pancong. Sesederhana itu alasannya, tapi buat aku rasanya beda. Kita bikin video timelapse, ngobrol ga jelas, ketawa-ketawa kecil, dan cuma duduk lama tanpa buru-buru. Malam itu ga mewah, tapi justru karena itu aku senang banget.",
+    image:
+      "/images/5.jpg",
+  },
+  {
+    title: "On My Lap",
+    caption: "Kalau kita lagi shift bareng dan kamu mulai ngantuk, biasanya kamu bakal tidur di pahaku. Aku yang jagain kamu sambil sesekali fotoin, karena muka kamu kalau lagi tidur selalu kelihatan tenang dan gemes banget.",
+    image:
+      "/images/6.jpg",
+  },
+];
 
-  // Initialize audio context and background music
+const starPositions = Array.from({ length: 24 }, (_, index) => ({
+  left: `${(index * 13) % 100}%`,
+  top: `${(index * 23) % 100}%`,
+  size: 2 + (index % 3),
+  delay: index * 0.4,
+}));
+
+// Tambahan: tipe untuk ripple
+type Ripple = {
+  id: number;
+  x: number;
+  y: number;
+};
+
+// URL musik latar & sfx tap (bebas kamu ganti)
+const BG_MUSIC_URL =
+  "/sound/backsound-sky.mp3";
+const TAP_SFX_URL =
+  "/sound/mouse-click.mp3";
+
+type ShootingStar = {
+  id: number;
+  x: number;
+  y: number;
+  duration: number;
+};
+
+export default function Home() {
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [notification, setNotification] = useState<string | null>(null);
+
+  const [tapCount, setTapCount] = useState(0);
+  const [currentSlide, setCurrentSlide] = useState(0); // // 0: moon tap, 1: notes, 2: letter, 3: quiet sky
+
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Ripple state
+  const [ripples, setRipples] = useState<Ripple[]>([]);
+  const rippleId = useRef(0);
+
+  // Shooting star state
+  const [shootingStars, setShootingStars] = useState<ShootingStar[]>([]);
+  const shootingStarId = useRef(0);
+
+  // Audio refs
+  const bgAudioRef = useRef<HTMLAudioElement | null>(null);
+  const tapAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [audioStarted, setAudioStarted] = useState(false);
+  const [bgMuted, setBgMuted] = useState(false);
+  const [sfxMuted, setSfxMuted] = useState(false);
+
+  const [selectedNoteIndex, setSelectedNoteIndex] = useState<number | null>(null);
+
+  const showQuestions = questionIndex < QUESTIONS.length;
+
   useEffect(() => {
-    const AudioContextCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    audioContextRef.current = AudioContextCtor ? new AudioContextCtor() : null;
-    
-    // Create background music element with a romantic piano track
-    const bgMusic = new Audio('https://assets.mixkit.co/music/preview/mixkit-romantic-love-11.mp3');
-    bgMusic.loop = true;
-    bgMusic.volume = 0.3;
-    backgroundMusicRef.current = bgMusic;
+    if (currentSlide !== 3) {
+      // kalau bukan di slide 3, kosongkan bintang jatuh
+      setShootingStars([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const spawnStar = () => {
+      if (cancelled) return;
+
+      // posisi awal random di bagian atas layar
+      const startX = Math.random() * window.innerWidth * 0.8;
+      const startY = Math.random() * window.innerHeight * 0.4;
+
+      const duration = 1500 + Math.random() * 2500; // 1.5 - 4 detik
+      const id = shootingStarId.current++;
+
+      setShootingStars((prev) => [
+        ...prev,
+        { id, x: startX, y: startY, duration },
+      ]);
+
+      // hapus star setelah animasi selesai
+      window.setTimeout(() => {
+        setShootingStars((prev) => prev.filter((s) => s.id !== id));
+      }, duration);
+
+      // jadwal star berikutnya
+      const nextDelay = 2000 + Math.random() * 3000; // 2 - 5 detik
+      window.setTimeout(spawnStar, nextDelay);
+    };
+
+    spawnStar();
 
     return () => {
-      audioContextRef.current?.close();
-      bgMusic.pause();
+      cancelled = true;
+      setShootingStars([]);
     };
-  }, []);
+  }, [currentSlide]);
 
-  // Play tap sound effect
-  const playTapSound = () => {
-    if (!audioContextRef.current || isMuted) return;
-    
-    const audioContext = audioContextRef.current;
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    
-    oscillator.frequency.value = 800;
-    oscillator.type = 'sine';
-    
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
-    
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.1);
-  };
-
-  const toggleMusic = () => {
-    if (!backgroundMusicRef.current) return;
-    
-    if (isMusicPlaying) {
-      backgroundMusicRef.current.pause();
-      setIsMusicPlaying(false);
-    } else {
-      backgroundMusicRef.current.play().catch(err => console.log('Audio play failed:', err));
-      setIsMusicPlaying(true);
-    }
-  };
-
-  const handleTap = (e: React.TouchEvent | React.MouseEvent) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = 'touches' in e 
-      ? ((e.touches[0].clientX - rect.left) / rect.width) * 100
-      : ((e.clientX - rect.left) / rect.width) * 100;
-    
-    // Play tap sound
-    playTapSound();
-    
-    const newHeart = { id: Date.now(), x };
-    setFloatingHearts(prev => [...prev, newHeart]);
-    
-    setTimeout(() => {
-      setFloatingHearts(prev => prev.filter(h => h.id !== newHeart.id));
-    }, 3000);
-
-    // Increment tap count
-    const newTapCount = tapCount + 1;
-    setTapCount(newTapCount);
-
-    // Move to next slide after 25 taps
-    if (newTapCount >= 25 && currentSlide === 1) {
-      setTimeout(() => {
-        setCurrentSlide(2);
-        setTapCount(0);
-      }, 500);
-    }
-  };
-
-  const handleYes = (index: number) => {
-    const newAnswered = [...answeredQuestions];
-    newAnswered[index] = true;
-    setAnsweredQuestions(newAnswered);
-    
-    // Play tap sound
-    playTapSound();
-    
-    // Check if all questions are answered
-    if (newAnswered.every(a => a)) {
-      setTimeout(() => {
-        setCurrentSlide(1);
-      }, 1200);
-    }
+  const handleYes = () => {
+    setNotification(null);
+    setQuestionIndex((prev) => prev + 1);
   };
 
   const handleNo = () => {
-    // Play tap sound
-    playTapSound();
+    setNotification("Kok no sih, kamu ga sayang ya :(");
+    // Hilangkan notif setelah 1.5 detik
+    setTimeout(() => {
+      setNotification(null);
+    }, 1500);
+  };
+
+  const ensureBackgroundMusic = () => {
+    const el = bgAudioRef.current;
+    if (!el) return;
+
+    // tandai sudah pernah start
+    if (!audioStarted) {
+      setAudioStarted(true);
+    }
+
+    // kalau tidak di-mute, pastikan play
+    if (!bgMuted) {
+      el.play().catch(() => undefined);
+    }
+  };
+
+  const playTapSfx = () => {
+    if (sfxMuted) return; // kalau SFX mute, jangan bunyi
+
+    const el = tapAudioRef.current;
+    if (!el) return;
+    el.currentTime = 0;
+    el.play().catch(() => undefined);
+  };
+
+  const handleToggleBgMute = () => {
+    setBgMuted((prev) => {
+      const next = !prev;
+      const el = bgAudioRef.current;
+      if (el) {
+        el.muted = next;
+        // kalau di-unmute dan sudah pernah start, pastikan lagu jalan lagi
+        if (!next && audioStarted) {
+          el.play().catch(() => undefined);
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSfxMute = () => {
+    setSfxMuted((prev) => !prev);
+  };
+
+  const handleTap = (event: React.MouseEvent<HTMLDivElement>) => {
+    // debug kalau mau: console.log("TAP", event.clientX, event.clientY);
+    console.log("TAP", event.clientX, event.clientY);
+    // Efek lucu + sound selalu jalan tiap tap
+    ensureBackgroundMusic();
+    playTapSfx();
+
+    // Hitung posisi ripple relatif ke container luar
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    const id = rippleId.current++;
+    setRipples((prev) => [...prev, { id, x, y }]);
+    window.setTimeout(() => {
+      setRipples((prev) => prev.filter((r) => r.id !== id));
+    }, 600);
+
+    // Game tap cuma aktif di slide bulan
+    if (showQuestions || currentSlide !== 0) return;
+
+    setTapCount((prev) => {
+      const next = prev + 1;
+
+      if (next >= TAPS_REQUIRED && !isTransitioning) {
+        // Mulai animasi transisi
+        setIsTransitioning(true);
+      
+        // Setelah animasi selesai (durasi 700ms), pindah slide
+        window.setTimeout(() => {
+          setCurrentSlide(1);
+          setIsTransitioning(false);
+        }, 700); // harus sama dengan durasi animasi CSS
+      }
     
-    const messages = [
-      "Oops! That's not the right answer 💔",
-      "Try again! Only 'Yes' will work 💕",
-      "Come on, you know you want to say yes! 💝",
-      "The heart wants what it wants... and it's 'Yes'! 💗",
-      "Nice try, but only 'Yes' opens the door to love! 💖"
-    ];
-    
-    toast.error(messages[Math.floor(Math.random() * messages.length)], {
-      duration: 3000,
-      className: 'bg-pink-500/90 text-white border-pink-300',
+      return next;
+      
     });
   };
 
   return (
-    <div className="relative w-full min-h-screen overflow-hidden">
-      <Toaster position="top-center" />
-      
-      {/* Music control button */}
-      {currentSlide > 0 && (
-        <motion.button
-          className="fixed top-4 right-4 z-50 bg-pink-500/20 backdrop-blur-md rounded-full p-3 text-pink-200 hover:bg-pink-500/30 transition-colors"
-          onClick={toggleMusic}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-        >
-          {isMusicPlaying ? <Music className="w-5 h-5" /> : <Music className="w-5 h-5 opacity-50" />}
-        </motion.button>
-      )}
+    <div className="relative min-h-screen overflow-hidden bg-[#0B0D17] text-white" onClick={handleTap}>
+      {/* Latar belakang bintang */}
+      <div className="starfield" />
 
-      {/* Mute button */}
-      {currentSlide > 0 && (
-        <motion.button
-          className="fixed top-4 right-20 z-50 bg-pink-500/20 backdrop-blur-md rounded-full p-3 text-pink-200 hover:bg-pink-500/30 transition-colors"
-          onClick={() => setIsMuted(!isMuted)}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-        >
-          {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-        </motion.button>
-      )}
-
-      {/* Tap counter (only on second slide) */}
-      {currentSlide === 1 && (
-        <motion.div
-          className="fixed top-4 left-4 z-50 bg-pink-500/20 backdrop-blur-md rounded-full px-4 py-2 text-pink-200"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 3 }}
-        >
-          <span className="text-sm font-light">{tapCount}/25</span>
-          <Heart className="w-4 h-4 inline-block ml-2 fill-current" />
-        </motion.div>
-      )}
-
-      <AnimatePresence mode="wait">
-        {currentSlide === 0 ? (
-          <motion.div
-            key="slide0"
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 1.1 }}
-            transition={{ duration: 1 }}
-            className="relative w-full min-h-screen"
-          >
-            <QuestionSlide 
-              stars={stars}
-              questions={questions}
-              answeredQuestions={answeredQuestions}
-              handleYes={handleYes}
-              handleNo={handleNo}
-            />
-          </motion.div>
-        ) : currentSlide === 1 ? (
-          <motion.div
-            key="slide1"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.1 }}
-            transition={{ duration: 1 }}
-            className="relative w-full min-h-screen"
-          >
-            <FirstSlide 
-              stars={stars} 
-              floatingHearts={floatingHearts} 
-              handleTap={handleTap}
-              tapCount={tapCount}
-            />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="slide2"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1 }}
-            className="relative w-full min-h-screen"
-          >
-            <SecondSlide 
-              stars={stars} 
-              flippedPhotos={flippedPhotos}
-              setFlippedPhotos={setFlippedPhotos}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function QuestionSlide({
-  stars,
-  questions,
-  answeredQuestions,
-  handleYes,
-  handleNo,
-}: {
-  stars: Star[];
-  questions: string[];
-  answeredQuestions: boolean[];
-  handleYes: (index: number) => void;
-  handleNo: () => void;
-}) {
-  return (
-    <div className="relative w-full min-h-screen bg-linear-to-b from-[#0a0e27] via-[#1a1132] to-[#2d1b3d] overflow-hidden">
-      {/* Stars */}
-      {stars.map((star) => (
-        <motion.div
-          key={star.id}
-          className="absolute rounded-full bg-white"
+      {starPositions.map((star, index) => (
+        <span
+          key={`star-${index}`}
+          className="absolute rounded-full bg-[#FFD88A] opacity-80"
           style={{
-            left: `${star.x}%`,
-            top: `${star.y}%`,
-            width: `${star.size}px`,
-            height: `${star.size}px`,
-          }}
-          animate={{
-            opacity: [0.2, 1, 0.2],
-            scale: [1, 1.2, 1],
-          }}
-          transition={{
-            duration: star.duration,
-            repeat: Infinity,
-            delay: star.delay,
+            left: star.left,
+            top: star.top,
+            width: star.size,
+            height: star.size,
+            animation: `starTwinkle 6s ${star.delay}s ease-in-out infinite`,
           }}
         />
       ))}
 
-      {/* Main Content */}
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-12">
-        <motion.div
-          initial={{ opacity: 0, y: -30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1 }}
-          className="mb-8 text-center"
-        >
-          <motion.div
-            animate={{
-              scale: [1, 1.1, 1],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          >
-            <Heart className="w-16 h-16 text-pink-400 fill-pink-400 mx-auto mb-4" />
-          </motion.div>
-          <h1 className="text-3xl font-serif text-pink-100 mb-2">
-            Before We Begin...
-          </h1>
-          <p className="text-sm text-pink-300/70">
-            Answer these questions from your heart
-          </p>
-        </motion.div>
-
-        {/* Questions */}
-        <div className="w-full max-w-md space-y-4">
-          {questions.map((question, index) => {
-            // Show question if it's the first one, or if all previous questions are answered
-            const shouldShow = index === 0 || answeredQuestions.slice(0, index).every(a => a);
-            
-            if (!shouldShow) return null;
-            
-            return (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, x: index % 2 === 0 ? -50 : 50, scale: 0.9 }}
-                animate={{ opacity: 1, x: 0, scale: 1 }}
-                transition={{ duration: 0.6, ease: "easeOut" }}
-                className={`bg-pink-500/10 backdrop-blur-md rounded-2xl p-5 border-2 transition-all duration-500 ${
-                  answeredQuestions[index]
-                    ? 'border-pink-400/60 bg-pink-500/20'
-                    : 'border-pink-300/20'
-                }`}
-              >
-                <div className="flex items-start gap-3 mb-4">
-                  <div className="shrink-0 w-8 h-8 rounded-full bg-pink-400/20 flex items-center justify-center text-pink-200 font-semibold text-sm">
-                    {index + 1}
-                  </div>
-                  <p className="text-pink-100 text-base leading-relaxed flex-1">
-                    {question}
-                  </p>
-                </div>
-
-                <div className="flex gap-3">
-                  <motion.button
-                    onClick={() => handleYes(index)}
-                    disabled={answeredQuestions[index]}
-                    className={`flex-1 py-3 rounded-xl font-medium transition-all ${
-                      answeredQuestions[index]
-                        ? 'bg-pink-500/50 text-white cursor-default'
-                        : 'bg-pink-500/30 text-pink-100 hover:bg-pink-500/40 active:scale-95'
-                    }`}
-                    whileHover={!answeredQuestions[index] ? { scale: 1.05 } : {}}
-                    whileTap={!answeredQuestions[index] ? { scale: 0.95 } : {}}
-                  >
-                    {answeredQuestions[index] ? '✓ Yes' : 'Yes'}
-                  </motion.button>
-
-                  <motion.button
-                    onClick={handleNo}
-                    disabled={answeredQuestions[index]}
-                    className={`flex-1 py-3 rounded-xl font-medium transition-all ${
-                      answeredQuestions[index]
-                        ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
-                        : 'bg-gray-500/30 text-pink-200 hover:bg-red-500/30 active:scale-95'
-                    }`}
-                    whileHover={!answeredQuestions[index] ? { scale: 1.05 } : {}}
-                    whileTap={!answeredQuestions[index] ? { scale: 0.95 } : {}}
-                  >
-                    No
-                  </motion.button>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-
-        {/* Progress indicator */}
-        <motion.div
-          className="mt-8 text-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 2 }}
-        >
-          <div className="flex items-center justify-center gap-2 mb-2">
-            {answeredQuestions.map((answered, i) => (
-              <motion.div
-                key={i}
-                className={`w-3 h-3 rounded-full transition-all ${
-                  answered ? 'bg-pink-400' : 'bg-pink-300/30'
-                }`}
-                animate={answered ? { scale: [1, 1.3, 1] } : {}}
-                transition={{ duration: 0.3 }}
-              />
-            ))}
-          </div>
-          <p className="text-xs text-pink-300/60">
-            {answeredQuestions.filter(a => a).length} of {questions.length} answered
-          </p>
-        </motion.div>
-
-        {/* Hint */}
-        {!answeredQuestions.every(a => a) && (
-          <motion.p
-            className="mt-6 text-xs text-pink-300/40 text-center italic"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 3 }}
-          >
-            Hint: Only &quot;Yes&quot; will unlock the magic ✨
-          </motion.p>
-        )}
-
-        {/* All answered celebration */}
-        {answeredQuestions.every(a => a) && (
-          <motion.div
-            className="mt-6 text-center"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
-          >
-            <p className="text-pink-200 text-lg font-light">
-              Perfect! Get ready for something magical... 💕
-            </p>
-          </motion.div>
-        )}
-      </div>
-
-      {/* Bottom gradient overlay */}
-      <div className="absolute bottom-0 left-0 right-0 h-32 bg-linear-to-t from-[#2d1b3d] to-transparent pointer-events-none" />
-    </div>
-  );
-}
-
-function FirstSlide({ 
-  stars, 
-  floatingHearts, 
-  handleTap,
-  tapCount 
-}: { 
-  stars: Star[]; 
-  floatingHearts: Array<{ id: number; x: number }>;
-  handleTap: (e: React.TouchEvent | React.MouseEvent) => void;
-  tapCount: number;
-}) {
-  return (
-    <div 
-      className="relative w-full min-h-screen bg-linear-to-b from-[#0a0e27] via-[#1a1132] to-[#2d1b3d] overflow-hidden"
-      onTouchStart={handleTap}
-      onClick={handleTap}
-    >
-      {/* Stars */}
-      {stars.map((star) => (
-        <motion.div
-          key={star.id}
-          className="absolute rounded-full bg-white"
-          style={{
-            left: `${star.x}%`,
-            top: `${star.y}%`,
-            width: `${star.size}px`,
-            height: `${star.size}px`,
-          }}
-          animate={{
-            opacity: [0.2, 1, 0.2],
-            scale: [1, 1.2, 1],
-          }}
-          transition={{
-            duration: star.duration,
-            repeat: Infinity,
-            delay: star.delay,
-          }}
-        />
-      ))}
-
-      {/* Glowing Moon */}
-      <motion.div
-        className="absolute top-20 left-1/2 -translate-x-1/2"
-        initial={{ opacity: 0, y: -50 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 2, ease: "easeOut" }}
-      >
-        <motion.div
-          className="relative w-32 h-32"
-          animate={{
-            scale: [1, 1.05, 1],
-          }}
-          transition={{
-            duration: 3,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        >
-          {/* Moon glow */}
-          <div className="absolute inset-0 rounded-full bg-linear-to-br from-yellow-100 to-orange-200 blur-2xl opacity-50" />
-          
-          {/* Moon body */}
-          <div className="absolute inset-0 rounded-full bg-linear-to-br from-yellow-50 via-yellow-100 to-orange-100 shadow-2xl">
-            {/* Craters */}
-            <div className="absolute top-6 left-8 w-6 h-6 rounded-full bg-yellow-200/30" />
-            <div className="absolute top-14 right-10 w-4 h-4 rounded-full bg-yellow-200/20" />
-            <div className="absolute bottom-8 left-12 w-5 h-5 rounded-full bg-yellow-200/25" />
-          </div>
-        </motion.div>
-      </motion.div>
-
-      {/* Floating hearts from taps */}
-      {floatingHearts.map((heart) => (
-        <motion.div
-          key={heart.id}
-          className="absolute bottom-0 text-pink-400"
-          style={{ left: `${heart.x}%` }}
-          initial={{ y: 0, opacity: 1, scale: 0 }}
-          animate={{ 
-            y: -400, 
-            opacity: 0,
-            scale: [0, 1, 0.8],
-            rotate: [0, 10, -10, 0],
-          }}
-          transition={{ duration: 3, ease: "easeOut" }}
-        >
-          <Heart className="w-6 h-6 fill-current" />
-        </motion.div>
-      ))}
-
-      {/* Main Content */}
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 text-center">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1, duration: 1.5 }}
-        >
-          <motion.h1 
-            className="text-5xl mb-4 font-serif text-pink-100 leading-tight"
-            animate={{
-              textShadow: [
-                "0 0 20px rgba(255, 182, 193, 0.5)",
-                "0 0 30px rgba(255, 182, 193, 0.8)",
-                "0 0 20px rgba(255, 182, 193, 0.5)",
-              ],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          >
-            Happy
-            <br />
-            Valentine&apos;s Day
-          </motion.h1>
-        </motion.div>
-
-        <motion.div
-          className="flex items-center gap-3 mb-8"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 1.5, duration: 1 }}
-        >
-          <motion.div
-            animate={{
-              scale: [1, 1.2, 1],
-              rotate: [0, 5, -5, 0],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              repeatDelay: 1,
-            }}
-          >
-            <Heart className="w-8 h-8 text-pink-400 fill-pink-400" />
-          </motion.div>
-          <motion.div
-            animate={{
-              scale: [1, 1.3, 1],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              repeatDelay: 1,
-              delay: 0.3,
-            }}
-          >
-            <Heart className="w-10 h-10 text-rose-300 fill-rose-300" />
-          </motion.div>
-          <motion.div
-            animate={{
-              scale: [1, 1.2, 1],
-              rotate: [0, -5, 5, 0],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              repeatDelay: 1,
-              delay: 0.6,
-            }}
-          >
-            <Heart className="w-8 h-8 text-pink-400 fill-pink-400" />
-          </motion.div>
-        </motion.div>
-
-        <motion.p
-          className="text-xl text-pink-200/90 max-w-xs leading-relaxed font-light italic"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 2, duration: 1.5 }}
-        >
-          Under the stars and moonlight,
-          <br />
-          love shines brightest tonight
-        </motion.p>
-
-        <motion.div
-          className="mt-12 text-sm text-pink-300/60"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 2.5, duration: 1.5 }}
-        >
-          Tap anywhere to spread the love ✨
-        </motion.div>
-
-        {/* Progress indicator */}
-        {tapCount > 0 && tapCount < 25 && (
-          <motion.div
-            className="mt-6 text-xs text-pink-300/40"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-          >
-            Keep tapping... something magical awaits! 💫
-          </motion.div>
-        )}
-
-        {/* Decorative shooting star */}
-        <motion.div
-          className="absolute top-40 right-10 w-1 h-1 bg-white rounded-full"
-          animate={{
-            x: [-100, 200],
-            y: [0, 150],
-            opacity: [0, 1, 0],
-          }}
-          transition={{
-            duration: 2,
-            repeat: Infinity,
-            repeatDelay: 5,
-            ease: "easeOut",
-          }}
-        >
-          <div className="absolute inset-0 bg-linear-to-r from-transparent via-white to-transparent blur-sm h-px w-12 -rotate-45" />
-        </motion.div>
-      </div>
-
-      {/* Bottom gradient overlay */}
-      <div className="absolute bottom-0 left-0 right-0 h-32 bg-linear-to-t from-[#2d1b3d] to-transparent pointer-events-none" />
-    </div>
-  );
-}
-
-const CASCADING_HEARTS_COUNT = 20;
-const FLOATING_SPARKLES_COUNT = 8;
-function getFloatingSparklesConfig() {
-  return Array.from({ length: FLOATING_SPARKLES_COUNT }, () => ({
-    left: 20 + Math.random() * 60,
-    top: 20 + Math.random() * 60,
-  }));
-}
-const FLOATING_SPARKLES_CONFIG = getFloatingSparklesConfig();
-
-function getCascadingHeartsConfig() {
-  return Array.from({ length: CASCADING_HEARTS_COUNT }, () => ({
-    left: Math.random() * 100,
-    duration: Math.random() * 3 + 4,
-    repeatDelay: Math.random() * 2,
-  }));
-}
-
-function SecondSlide({ 
-  stars, 
-  flippedPhotos, 
-  setFlippedPhotos 
-}: { 
-  stars: Star[];
-  flippedPhotos: boolean[];
-  setFlippedPhotos: React.Dispatch<React.SetStateAction<boolean[]>>;
-}) {
-  const cascadingHeartsConfig = useMemo(() => getCascadingHeartsConfig(), []);
-  const handleFlipPhoto = (index: number) => {
-    const newFlipped = [...flippedPhotos];
-    newFlipped[index] = !newFlipped[index];
-    setFlippedPhotos(newFlipped);
-  };
-  return (
-    <div className="relative w-full min-h-screen bg-linear-to-b from-[#2d1b3d] via-[#4a1942] to-[#1a0a2e] overflow-hidden">
-      {/* Stars */}
-      {stars.map((star) => (
-        <motion.div
-          key={star.id}
-          className="absolute rounded-full bg-white"
-          style={{
-            left: `${star.x}%`,
-            top: `${star.y}%`,
-            width: `${star.size}px`,
-            height: `${star.size}px`,
-          }}
-          animate={{
-            opacity: [0.2, 1, 0.2],
-            scale: [1, 1.2, 1],
-          }}
-          transition={{
-            duration: star.duration,
-            repeat: Infinity,
-            delay: star.delay,
-          }}
-        />
-      ))}
-
-      {/* Cascading hearts animation */}
-      <div className="absolute inset-0 overflow-hidden">
-        {cascadingHeartsConfig.map((heart, i) => (
-          <motion.div
-            key={i}
-            className="absolute text-pink-400"
+      {/* Bintang jatuh */}
+      <div className="pointer-events-none absolute inset-0 z-[15]">
+        {shootingStars.map((star) => (
+          <span
+            key={star.id}
+            className="shooting-star"
             style={{
-              left: `${heart.left}%`,
-              top: -20,
-            }}
-            initial={{ y: -20, opacity: 0 }}
-            animate={{
-              y: window.innerHeight + 50,
-              opacity: [0, 1, 1, 0],
-              rotate: [0, 360],
-              scale: [0.5, 1, 0.5],
-            }}
-            transition={{
-              duration: heart.duration,
-              delay: i * 0.3,
-              repeat: Infinity,
-              repeatDelay: heart.repeatDelay,
-            }}
-          >
-            <Heart className="w-6 h-6 fill-current" />
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Main Content */}
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 text-center">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 1.5, ease: "easeOut" }}
-        >
-          <motion.div
-            className="mb-8"
-            animate={{
-              scale: [1, 1.1, 1],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          >
-            <Heart className="w-24 h-24 text-rose-400 fill-rose-400 mx-auto" />
-          </motion.div>
-
-          <motion.h1 
-            className="text-4xl mb-6 font-serif text-pink-100 leading-tight"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5, duration: 1 }}
-          >
-            You Did It!
-          </motion.h1>
-
-          <motion.p
-            className="text-2xl text-pink-200/90 max-w-sm leading-relaxed font-light mb-6"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1, duration: 1.5 }}
-          >
-            Your love has unlocked
-            <br />
-            this secret message
-          </motion.p>
-
-          <motion.div
-            className="bg-pink-500/10 backdrop-blur-md rounded-2xl px-8 py-6 border border-pink-300/20 max-w-md"
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 1.5, duration: 1 }}
-          >
-            <p className="text-lg text-pink-100/80 italic leading-relaxed">
-              &quot;In every tap, a heartbeat.
-              <br />
-              In every moment, magic.
-              <br />
-              In every love, forever.&quot;
-            </p>
-          </motion.div>
-
-          <motion.div
-            className="mt-10 text-sm text-pink-300/60"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 2.5, duration: 1.5 }}
-          >
-            💝 Happy Valentine&apos;s Day 💝
-          </motion.div>
-        </motion.div>
-
-        {/* Love Memories Vertical Section */}
-        <div className="relative z-10 w-full px-6 py-20 space-y-16">
-          {[
-            {
-              src: "/images/andra.png",
-              caption: "The first time we laughed together 🌙"
-            },
-            {
-              src: "https://via.placeholder.com/400x600/2d1b3d/ffffff?text=Memory+2",
-              caption: "The night we talked until morning ✨"
-            },
-            {
-              src: "https://via.placeholder.com/400x600/4a1942/ffffff?text=Memory+3",
-              caption: "Every moment with you feels magical 💫"
-            }
-          ].map((photo, index) => (
-            <motion.div
-              key={index}
-              className="flex flex-col items-center text-center"
-              initial={{ opacity: 0, y: 50 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8 }}
-              viewport={{ once: true }}
-            >
-              <motion.div
-                className="w-full max-w-sm rounded-2xl overflow-hidden shadow-xl"
-                animate={{ y: [0, -6, 0] }}
-                transition={{
-                  duration: 4,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-              >
-                <ImageWithFallback
-                  src={photo.src}
-                  alt="Love memory"
-                  className="w-full h-auto object-cover"
-                />
-              </motion.div>
-              
-              <p className="mt-4 text-pink-200/80 text-sm italic max-w-xs leading-relaxed">
-                {photo.caption}
-              </p>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* Floating sparkles */}
-        {FLOATING_SPARKLES_CONFIG.map((sparkle, i) => (
-          <motion.div
-            key={i}
-            className="absolute w-2 h-2 bg-yellow-200 rounded-full"
-            style={{
-              left: `${sparkle.left}%`,
-              top: `${sparkle.top}%`,
-            }}
-            animate={{
-              scale: [0, 1, 0],
-              opacity: [0, 1, 0],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              delay: i * 0.3,
-              repeatDelay: 1,
+              left: star.x,
+              top: star.y,
+              animationDuration: `${star.duration}ms`,
             }}
           />
         ))}
       </div>
+
+      {/* Lapisan untuk ripple tap */}
+      <div className="pointer-events-none absolute inset-0 z-20">
+        {ripples.map((ripple) => (
+          <span
+            key={ripple.id}
+            className="tap-ripple"
+            style={{ left: ripple.x, top: ripple.y }}
+          />
+        ))}
+      </div>
+
+      {/* Overlay warp luar angkasa saat transisi */}
+      {isTransitioning && <div className="space-warp-overlay" />}
+
+      {/* Audio tersembunyi */}
+      <audio
+        ref={bgAudioRef}
+        src={BG_MUSIC_URL}
+        loop
+        preload="auto"
+        style={{ display: "none" }}
+      />
+      <audio
+        ref={tapAudioRef}
+        src={TAP_SFX_URL}
+        preload="auto"
+        style={{ display: "none" }}
+      />
+
+      {/* Tombol mute/unmute di pojok kanan atas */}
+      <div className="fixed top-3 right-3 z-30 flex flex-col gap-2 text-[10px] sm:text-xs">
+        <button
+          type="button"
+          onClick={handleToggleBgMute}
+          className="rounded-full border border-white/40 bg-black/40 px-3 py-1 text-white/70 shadow-sm backdrop-blur-sm transition hover:border-[#FFD88A] hover:text-[#FFD88A]"
+        >
+          BGM: {bgMuted ? "Off" : "On"}
+        </button>
+        <button
+          type="button"
+          onClick={handleToggleSfxMute}
+          className="rounded-full border border-white/40 bg-black/40 px-3 py-1 text-white/70 shadow-sm backdrop-blur-sm transition hover:border-[#FFD88A] hover:text-[#FFD88A]"
+        >
+          SFX: {sfxMuted ? "Off" : "On"}
+        </button>
+      </div>
+
+      <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6 text-center">
+        {/* MODAL LOVE NOTE */}
+        {selectedNoteIndex !== null && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+            <div className="relative w-full max-w-md rounded-2xl border border-white/15 bg-[#0B0D17]/90 p-4 text-left shadow-[0_30px_60px_rgba(0,0,0,0.7)] backdrop-blur">
+              <button
+                type="button"
+                onClick={() => setSelectedNoteIndex(null)}
+                className="absolute right-3 top-3 rounded-full border border-white/30 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70 transition hover:border-[#FFD88A]/70 hover:text-[#FFD88A]"
+              >
+                Close
+              </button>
+        
+              <h2 className="heading-font mb-3 text-xl font-semibold text-white">
+                {LOVE_NOTES[selectedNoteIndex].title}
+              </h2>
+        
+              <div className="mb-3 w-full overflow-hidden rounded-xl">
+                <img
+                  src={LOVE_NOTES[selectedNoteIndex].image}
+                  alt={LOVE_NOTES[selectedNoteIndex].title}
+                  className="h-auto w-full max-h-[60vh] object-contain"
+                />
+              </div>
+        
+              <p className="text-sm leading-relaxed text-white/75">
+                {LOVE_NOTES[selectedNoteIndex].caption}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {showQuestions ? (
+          // ======== BAGIAN PERTANYAAN ========
+          <section className="flex flex-col items-center gap-6 max-w-xl animate-[fadeInUp_0.4s_ease-out]">
+            <p className="text-sm uppercase tracking-[0.35em] text-[#FFD88A]">
+              Hi DARA!
+            </p>
+
+            <h1 className="heading-font text-xl font-semibold leading-snug text-white sm:text-3xl">
+              Hopefully there is no pressure to answer this.
+            </h1>
+
+            <p className="text-white/70 text-xs mb-5">
+              Only one answer is allowed — the universe insists it's “yes.”
+            </p>
+
+            <div className="question-card w-full rounded-2xl border border-white/10 bg-black/40 p-6 backdrop-blur-md shadow-[0_20px_40px_rgba(0,0,0,0.6)]">
+              <p className="mb-4 text-xs font-medium text-white/50 uppercase tracking-[0.25em]">
+                {questionIndex + 1} / {QUESTIONS.length}
+              </p>
+
+              <p className="text-base font-medium text-white/90 mb-6 sm:text-3xl">
+                {QUESTIONS[questionIndex]}
+              </p>
+
+              <div className="flex items-center justify-center gap-4 mb-6">
+                <button
+                  type="button"
+                  onClick={handleYes}
+                  className="rounded-full bg-[#FFD88A] px-6 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#0B0D17] shadow-[0_10px_20px_rgba(255,216,138,0.4)] transition hover:scale-[1.03]"
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNo}
+                  className="rounded-full border border-white/40 px-6 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/70 transition hover:border-[#FFD88A]/70 hover:text-[#FFD88A]"
+                >
+                  No
+                </button>
+              </div>
+
+              {notification && (
+                <p className="mt-4 text-[8px] sm:text-[11px] uppercase tracking-[0.25em] text-[#FFD88A]">
+                  {notification}
+                </p>
+              )}
+            </div>
+          </section>
+        ) : currentSlide === 0 ? (
+
+          <section className={`soft-fade-in flex flex-col items-center gap-6 ${
+            isTransitioning ? "slide-out-right" : "soft-fade-in"
+            }`}>
+            <p className="text-xs sm:text-sm uppercase tracking-[0.35em] text-[#FFD88A]">
+              HI DARA!
+            </p>
+
+            <h1 className="heading-font text-2xl font-semibold leading-tight text-white sm:text-3xl">
+              My Favorite Person in the Universe
+            </h1>
+
+            <p className="max-w-2xl text-sm text-white/70 sm:text-base mb-4">
+              For the one who lights up my every orbit.
+            </p>
+
+            <div className="moon-drop relative flex h-52 w-52 items-center justify-center sm:h-64 sm:w-64">
+              {/* Orbit luar */}
+              <div className="absolute inset-0 animate-[orbitSpin_30s_linear_infinite] rounded-full border border-white/10" />
+              {/* Orbit dalam */}
+              <div className="absolute inset-4 animate-[orbitSpin_18s_linear_infinite] rounded-full border border-white/5" />
+              {/* Bulan */}
+              <div className="moon-surface relative h-36 w-36 rounded-full sm:h-44 sm:w-44">
+                <div className="absolute left-6 top-8 h-6 w-6 rounded-full bg-[#d19a6a]/60" />
+                <div className="absolute right-8 top-12 h-4 w-4 rounded-full bg-[#c58a5f]/60" />
+                <div className="absolute bottom-8 left-12 h-5 w-5 rounded-full bg-[#c58a5f]/60" />
+              </div>
+            </div>
+
+              {/* Counter tap */}
+            <div className="mt-2 flex flex-col items-center gap-2 text-xs text-white/65 sm:text-sm">
+              <div className="flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 mb-5">
+                <span className="h-2 w-2 rounded-full bg-[#FFD88A]" />
+                <span>
+                  {tapCount}/{TAPS_REQUIRED}
+                </span>
+              </div>
+              <p className="text-[11px] text-white/40">
+                Tap bintangnya!
+              </p>
+            </div>
+          </section>
+        ) : currentSlide === 1 ? (
+          // ======== SLIDE 2: SETELAH 25 TAP ========
+          <section className="flex w-full max-w-5xl flex-col items-center gap-6 animate-[fadeInUp_0.7s_ease-out_forwards]">
+            <p className="text-sm uppercase tracking-[0.35em] text-[#FFD88A]">
+              About You & Us
+            </p>
+
+            <h1 className="heading-font text-3xl font-semibold leading-snug text-white sm:text-4xl">
+              Little Moments ✨
+            </h1>
+
+            <p className="max-w-2xl text-sm text-white/65 sm:text-base">
+              Setiap kotak menyimpan pesan kecil tentang bagaimana kamu membuat semestaku terasa lebih indah.
+            </p>
+
+            <div className="mt-4 grid w-full items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {LOVE_NOTES.map((note, index) => (
+                <div
+                  key={note.title}
+                  className="h-full animate-[fadeInUp_0.6s_ease-out_forwards]"
+                  style={{ animationDelay: `${0.1 * index}s` }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSelectedNoteIndex(index)}
+                    className="love-note group relative flex h-52 w-full flex-col overflow-hidden rounded-2xl border border-white/15 bg-white/5 p-4 text-left shadow-[0_20px_40px_rgba(0,0,0,0.6)] backdrop-blur-sm transition hover:border-[#FFD88A]/70 hover:bg-white/10"
+                  >
+                    <div className="relative mb-6 h-32 w-full overflow-hidden rounded-xl">
+                      <img
+                        src={note.image}
+                        alt={note.title}
+                        className="h-full w-full object-cover filter grayscale transition duration-500 group-hover:scale-105 group-hover:grayscale-0"
+                      />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+                    </div>
+                    <span className="block mt-0 text-sm font-semibold text-white">
+                      {note.title}
+                    </span>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* TOMBOL KE SLIDE 3 */}
+            <button
+              type="button"
+              onClick={() => setCurrentSlide(2)}
+              className="mt-6 rounded-full border border-white/30 px-6 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/70 transition hover:border-[#FFD88A]/70 hover:text-[#FFD88A]"
+            >
+              I Love U
+            </button>
+          </section>
+        ) : currentSlide === 2 ? (
+          // ======== SLIDE 3: SURAT BERTEMA SPACE ========
+          <section className="flex w-full max-w-3xl flex-col items-center gap-6 animate-[fadeInUp_0.7s_ease-out_forwards]">
+            <p className="text-xs sm:text-sm uppercase tracking-[0.35em] text-[#FFD88A]">
+              A Little Letter
+            </p>
+
+            <div className="relative w-full max-w-2xl rounded-3xl border border-white/15 bg-white/5 p-6 sm:p-8 text-left shadow-[0_25px_60px_rgba(0,0,0,0.7)] backdrop-blur-md">
+              {/* dekorasi kecil biar berasa space */}
+              <div className="pointer-events-none absolute -left-10 top-6 h-20 w-20 rounded-full bg-gradient-to-br from-[#FFD88A]/40 via-transparent to-[#F4B4C4]/40 blur-2xl" />
+              <div className="pointer-events-none absolute -right-8 bottom-4 h-16 w-16 rounded-full bg-gradient-to-br from-[#F4B4C4]/30 via-transparent to-[#CFA9FF]/40 blur-2xl" />
+
+              <p className="text-xs uppercase tracking-[0.35em] text-white/50">
+                Dear Dara,
+              </p>
+
+              <p className="mt-4 text-sm leading-relaxed text-white/80 sm:text-base">
+                Hubungan kita ga pernah gampang. Banyak hal yang harus kita lewatin, 
+                banyak capeknya, banyak pikirannya, bahkan kadang rasanya kayak dunia nggak pernah benar-benar berpihak ke kita. 
+                Ada momen kita sama-sama lelah, salah paham, atau cuma diam karena bingung harus mulai dari mana. 
+                Tapi anehnya, di tengah semua berat itu, aku ga pernah benar-benar pengen pergi”.
+              </p>
+
+              <p className="mt-4 text-sm leading-relaxed text-white/80 sm:text-base">
+                Aku tahu ini ga ringan, dan mungkin ga selalu indah. 
+                Tapi setiap kali aku lihat kamu, aku selalu ngerasa kalau semua usaha itu masih layak diperjuangkan. 
+                Kita mungkin ga sempurna, jalannya juga ga mulus, tapi selama kita masih mau bertahan dan belajar satu sama lain, 
+                aku percaya hubungan ini bukan cuma tentang bertahan… tapi tentang tumbuh bareng, pelan-pelan.
+              </p>
+
+              <p className="mt-6 text-xs uppercase tracking-[0.3em] text-[#FFD88A]">
+                With a sky full of tiny wishes,
+              </p>
+              <p className="mt-1 text-sm font-semibold text-white/90">Someone who&apos;s very fond of you</p>
+            </div>
+
+            {/* TOMBOL KE SLIDE 4 (LANGIT HENING + BINTANG JATUH) */}
+            <button
+              type="button"
+              onClick={() => setCurrentSlide(3)}
+              className="mt-4 rounded-full border border-white/30 px-6 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/60 opacity-40 transition hover:border-[#FFD88A]/70 hover:text-[#FFD88A] hover:opacity-90"
+            >
+              Continue to the quiet sky
+            </button>
+          </section>
+        ) : (
+          // ======== SLIDE 3: HENING, BULAN + BINTANG JATUH ========
+          <section className="flex flex-col items-center justify-center gap-6">
+            <div className="relative flex h-52 w-52 items-center justify-center sm:h-64 sm:w-64">
+              <div className="absolute inset-0 animate-[orbitSpin_30s_linear_infinite] rounded-full border border-white/10" />
+              <div className="absolute inset-4 animate-[orbitSpin_18s_linear_infinite] rounded-full border border-white/5" />
+              <div className="moon-surface relative h-36 w-36 rounded-full sm:h-44 sm:w-44">
+                <div className="absolute left-6 top-8 h-6 w-6 rounded-full bg-[#d19a6a]/60" />
+                <div className="absolute right-8 top-12 h-4 w-4 rounded-full bg-[#c58a5f]/60" />
+                <div className="absolute bottom-8 left-12 h-5 w-5 rounded-full bg-[#c58a5f]/60" />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCurrentSlide(1)}
+              className="mt-4 rounded-full border border-white/30 px-6 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/40 opacity-20 transition hover:border-[#FFD88A]/60 hover:bg-black/40 hover:text-[#FFD88A] hover:opacity-80"
+            >
+            Back
+            </button>
+            {/* Kalau mau benar-benar hening, tidak usah pakai teks */}
+            {/* <p className="mt-4 text-xs text-white/40 sm:text-sm">
+              Just us, under a quiet sky.
+            </p> */}
+          </section>
+          )}
+        </main>
     </div>
   );
 }
